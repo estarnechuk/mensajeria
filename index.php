@@ -619,7 +619,7 @@ $stmtContactos->close();
         let modoSeleccion = false;
         let mensajesSeleccionados = new Set();
 
-        const sonidoNuevoMensaje = new Audio('/Neo_Encomiendas/Sonidos/Aviso_de_nuevo_mensaje.mp3');
+        const sonidoNuevoMensaje = new Audio('/Sonidos/Aviso_de_nuevo_mensaje.mp3');
         let totalNoLeidosAnterior = -1; // -1 = todavía no cargamos la bandeja ninguna vez
 
         function escapeHtml(texto) {
