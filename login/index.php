@@ -78,7 +78,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 </head>
 <body>
     <div class="login-card">
-        <h1>Mensajería</h1>
+        <h1>Mensajería Alma Sistemas</h1>
         <?php if ($error): ?>
             <div class="alert alert-danger py-2"><?= htmlspecialchars($error, ENT_QUOTES, 'UTF-8') ?></div>
         <?php endif; ?>
