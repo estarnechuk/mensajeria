@@ -3,11 +3,11 @@ if (session_status() == PHP_SESSION_NONE) {
     session_start();
 }
 if (!isset($_SESSION['Accesar']) || !in_array($_SESSION['Accesar'], ['ADMINISTRADOR', 'OPERADOR', 'CONTROL2'])) {
-    header("location: ../login/index.php");
+    header("location: login/index.php");
     exit;
 }
-require_once('../csrf.php');
-require_once('../Conexion.php');
+require_once(__DIR__ . '/csrf.php');
+require_once(__DIR__ . '/Conexion.php');
 $csrf_token = $_POST['csrf_token'] ?? '';
 if (!csrf_verify($csrf_token)) {
     die("Token CSRF inválido");

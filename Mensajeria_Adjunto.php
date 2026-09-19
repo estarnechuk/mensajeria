@@ -3,10 +3,10 @@ if (session_status() == PHP_SESSION_NONE) {
     session_start();
 }
 if (!isset($_SESSION['Accesar']) || !in_array($_SESSION['Accesar'], ['ADMINISTRADOR', 'OPERADOR', 'CONTROL2'])) {
-    header("location: ../login/index.php");
+    header("location: login/index.php");
     exit;
 }
-require_once('../Conexion.php');
+require_once(__DIR__ . '/Conexion.php');
 mysqli_select_db($CNX, $database);
 
 $Operador = $_SESSION['Operador'];

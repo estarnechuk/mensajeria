@@ -3,11 +3,11 @@ if (session_status() == PHP_SESSION_NONE) {
     session_start();
 }
 if (!isset($_SESSION['Accesar']) || !in_array($_SESSION['Accesar'], ['ADMINISTRADOR', 'OPERADOR', 'CONTROL2'])) {
-    header("location: ../login/index.php");
+    header("location: login/index.php");
     exit;
 }
-require_once('../csrf.php');
-require_once('../Conexion.php');
+require_once(__DIR__ . '/csrf.php');
+require_once(__DIR__ . '/Conexion.php');
 mysqli_select_db($CNX, $database);
 
 $Operador = $_SESSION['Operador'];
@@ -515,6 +515,7 @@ $stmtContactos->close();
                     <div class="titulo"><i class="bi bi-chat-dots-fill"></i> Mensajería NEO MANDADOS</div>
                     <div class="mi-alias"><?php echo htmlspecialchars($MiAlias, ENT_QUOTES, 'UTF-8'); ?></div>
                 </div>
+                <a href="login/logout.php" title="Cerrar sesión" style="color:#fff;"><i class="bi bi-box-arrow-right"></i></a>
             </div>
             <div class="wa-search">
                 <input type="text" id="buscarContacto" placeholder="Buscar o empezar chat nuevo">
