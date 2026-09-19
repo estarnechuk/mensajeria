@@ -50,7 +50,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 <head>
     <meta charset="UTF-8">
     <title>Ingresar - Mensajería</title>
-    <link href="/bootstrap/css/bootstrap.min.css" rel="stylesheet">
+    <link href="/css/bootstrap5_css/bootstrap.min.css" rel="stylesheet">
     <style>
         body {
             height: 100vh;
