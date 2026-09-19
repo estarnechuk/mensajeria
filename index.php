@@ -28,7 +28,7 @@ $stmtContactos->close();
 <head>
     <meta charset="UTF-8">
     <title>Mensajería - Neo Encomiendas</title>
-    <link href="/bootstrap/css/bootstrap.min.css" rel="stylesheet">
+    <link href="/css/bootstrap5_css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="/bootstrap/icons/bootstrap-icons.css">
     <style>
         html, body {
