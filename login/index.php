@@ -4,7 +4,7 @@ if (session_status() == PHP_SESSION_NONE) {
 }
 require_once(__DIR__ . '/../csrf.php');
 
-if (isset($_SESSION['Accesar']) && in_array($_SESSION['Accesar'], ['ADMINISTRADOR', 'OPERADOR', 'CONTROL2'])) {
+if (isset($_SESSION['Operador'])) {
     header("location: ../index.php");
     exit;
 }
@@ -25,19 +25,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             require_once(__DIR__ . '/../Conexion.php');
             mysqli_select_db($CNX, $database);
 
-            $stmt = $CNX->prepare("SELECT DNI, Alias, Password FROM personal WHERE DNI = ?");
+            $stmt = $CNX->prepare("SELECT DNI, Alias, Password, Aprobado, Tipo_Personal FROM personal WHERE DNI = ?");
             $stmt->bind_param("i", $DNI);
             $stmt->execute();
             $fila = $stmt->get_result()->fetch_assoc();
             $stmt->close();
 
             if ($fila && password_verify($Password, $fila['Password'])) {
-                session_regenerate_id(true);
-                $_SESSION['Operador'] = (int)$fila['DNI'];
-                $_SESSION['Alias'] = $fila['Alias'];
-                $_SESSION['Accesar'] = 'OPERADOR';
-                header("location: ../index.php");
-                exit;
+                if ((int)$fila['Aprobado'] !== 1) {
+                    $error = 'Tu cuenta está pendiente de aprobación por un administrador.';
+                } else {
+                    session_regenerate_id(true);
+                    $_SESSION['Operador'] = (int)$fila['DNI'];
+                    $_SESSION['Alias'] = $fila['Alias'];
+                    $_SESSION['Accesar'] = $fila['Tipo_Personal'];
+                    header("location: ../index.php");
+                    exit;
+                }
             } else {
                 $error = 'DNI o contraseña incorrectos.';
             }
@@ -50,7 +54,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 <head>
     <meta charset="UTF-8">
     <title>Ingresar - Mensajería</title>
-    <link href="/css/bootstrap5_css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="/css/bootstrap5_css/bootstrap.min.css">
+    <link rel="stylesheet" href="/css/bootstrap_icons/bootstrap-icons.css">
     <style>
         body {
             height: 100vh;
@@ -94,6 +99,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             </div>
             <button type="submit" class="btn btn-success w-100" style="background:#008069;border-color:#008069;">Ingresar</button>
         </form>
+        <div class="text-center mt-3">
+            <a href="registro.php">¿No tenés cuenta? Registrate</a>
+        </div>
     </div>
 </body>
 </html>

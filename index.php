@@ -2,7 +2,7 @@
 if (session_status() == PHP_SESSION_NONE) {
     session_start();
 }
-if (!isset($_SESSION['Accesar']) || !in_array($_SESSION['Accesar'], ['ADMINISTRADOR', 'OPERADOR', 'CONTROL2'])) {
+if (!isset($_SESSION['Operador'])) {
     header("location: login/index.php");
     exit;
 }
@@ -13,7 +13,7 @@ mysqli_select_db($CNX, $database);
 $Operador = $_SESSION['Operador'];
 $MiAlias = $_SESSION['Alias'] ?? '';
 
-$stmtContactos = $CNX->prepare("SELECT DNI, Alias FROM personal WHERE DNI != ? AND Tipo_Personal <> 'BASE' AND Tipo_Personal <> 'DESIGNADO' ORDER BY Alias ASC");
+$stmtContactos = $CNX->prepare("SELECT DNI, Alias FROM personal WHERE DNI != ? AND Aprobado = 1 ORDER BY Alias ASC");
 $stmtContactos->bind_param("i", $Operador);
 $stmtContactos->execute();
 $rsContactos = $stmtContactos->get_result();
@@ -27,8 +27,8 @@ $stmtContactos->close();
 <html lang="es">
 <head>
     <meta charset="UTF-8">
-    <title>Mensajería - Neo Encomiendas</title>
-    <link href="/css/bootstrap5_css/bootstrap.min.css" rel="stylesheet">
+    <title>Mensajería Alma Sistemas</title>
+    <link rel="stylesheet" href="/css/bootstrap5_css/bootstrap.min.css">
     <link rel="stylesheet" href="/css/bootstrap_icons/bootstrap-icons.css">
     <style>
         html, body {
@@ -512,10 +512,15 @@ $stmtContactos->close();
         <div class="wa-sidebar">
             <div class="wa-sidebar-header">
                 <div>
-                    <div class="titulo"><i class="bi bi-chat-dots-fill"></i> Mensajería NEO MANDADOS</div>
+                    <div class="titulo"><i class="bi bi-chat-dots-fill"></i> Mensajería Alma Sistemas</div>
                     <div class="mi-alias"><?php echo htmlspecialchars($MiAlias, ENT_QUOTES, 'UTF-8'); ?></div>
                 </div>
-                <a href="login/logout.php" title="Cerrar sesión" style="color:#fff;"><i class="bi bi-box-arrow-right"></i></a>
+                <div>
+                    <?php if (($_SESSION['Accesar'] ?? '') === 'ADMINISTRADOR'): ?>
+                        <a href="admin_altas.php" title="Altas pendientes" style="color:#fff; margin-right:12px;"><i class="bi bi-person-check-fill"></i></a>
+                    <?php endif; ?>
+                    <a href="login/logout.php" title="Cerrar sesión" style="color:#fff;"><i class="bi bi-box-arrow-right"></i></a>
+                </div>
             </div>
             <div class="wa-search">
                 <input type="text" id="buscarContacto" placeholder="Buscar o empezar chat nuevo">
