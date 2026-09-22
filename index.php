@@ -417,6 +417,28 @@ $stmtContactos->close();
         .wa-btn-enviar:hover {
             background: #006a58;
         }
+        .wa-btn-colgar {
+            background: #d32f2f;
+            color: #fff;
+            border: none;
+            border-radius: 50%;
+            width: 46px;
+            height: 46px;
+            min-width: 46px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 18px;
+        }
+        .wa-btn-colgar:hover {
+            background: #b71c1c;
+        }
+        .wa-modal-llamada-avatar {
+            width: 80px;
+            height: 80px;
+            font-size: 30px;
+            margin: 0 auto 14px;
+        }
         .wa-sin-mensajes {
             text-align: center;
             color: #667781;
@@ -539,6 +561,9 @@ $stmtContactos->close();
                     <div class="wa-avatar" id="chatAvatar"></div>
                     <div class="wa-contacto-alias" id="chatAlias"></div>
                     <div style="margin-left:auto;">
+                        <button type="button" class="wa-btn-header" id="btnLlamar" title="Llamar">
+                            <i class="bi bi-telephone-fill"></i>
+                        </button>
                         <button type="button" class="wa-btn-header" id="btnModoSeleccion" title="Seleccionar mensajes">
                             <i class="bi bi-check2-square"></i>
                         </button>
@@ -591,6 +616,21 @@ $stmtContactos->close();
         </div>
     </div>
 
+    <div id="modalLlamada" class="wa-modal-overlay" style="display:none;">
+        <div class="wa-modal" style="width:320px;">
+            <div class="wa-modal-header">
+                <span>Llamada de voz</span>
+            </div>
+            <div style="padding:28px 16px; text-align:center;">
+                <div class="wa-avatar wa-modal-llamada-avatar" id="llamadaAvatar"></div>
+                <div class="wa-contacto-alias" id="llamadaAlias" style="font-size:18px; margin-bottom:6px;"></div>
+                <div id="llamadaEstadoTexto" style="color:#667781; font-size:14px; margin-bottom:24px;"></div>
+                <div id="llamadaBotones" style="display:flex; justify-content:center; gap:24px;"></div>
+            </div>
+        </div>
+        <audio id="audioRemoto" autoplay></audio>
+    </div>
+
     <script src="/js/jquery-3.4.1.min.js"></script>
     <script>
         const CSRF_TOKEN = '<?php echo csrf_token(); ?>';
@@ -626,6 +666,15 @@ $stmtContactos->close();
 
         const sonidoNuevoMensaje = new Audio('/Sonidos/Aviso_de_nuevo_mensaje.mp3');
         let totalNoLeidosAnterior = -1; // -1 = todavía no cargamos la bandeja ninguna vez
+
+        // ---- Llamadas de voz (WebRTC, señalización por polling) ----
+        const ICE_SERVERS = [{ urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302'] }];
+        let llamadaActual = null; // { Id, Rol, Contacto, Alias, pc, localStream, ultimoCandidatoVisto, estado, ... }
+        let intervaloSenalLlamada = null;
+        let audioContextLlamada = null;
+        let tonoLlamadaActivo = false;
+        let cronometroLlamadaInterval = null;
+        let cronometroLlamadaSegundos = 0;
 
         function escapeHtml(texto) {
             return $('<div>').text(texto == null ? '' : texto).html();
@@ -1031,10 +1080,301 @@ $stmtContactos->close();
             });
         }
 
+        function iniciarTonoLlamada() {
+            if (tonoLlamadaActivo) return;
+            tonoLlamadaActivo = true;
+            try {
+                audioContextLlamada = new (window.AudioContext || window.webkitAudioContext)();
+            } catch (e) {
+                return;
+            }
+            (function ciclo() {
+                if (!tonoLlamadaActivo || !audioContextLlamada) return;
+                const ahora = audioContextLlamada.currentTime;
+                [480, 620].forEach(function (freq) {
+                    const osc = audioContextLlamada.createOscillator();
+                    const gain = audioContextLlamada.createGain();
+                    osc.frequency.value = freq;
+                    gain.gain.value = 0.05;
+                    osc.connect(gain).connect(audioContextLlamada.destination);
+                    osc.start(ahora);
+                    osc.stop(ahora + 1);
+                });
+                setTimeout(ciclo, 3000);
+            })();
+        }
+
+        function detenerTonoLlamada() {
+            tonoLlamadaActivo = false;
+            if (audioContextLlamada) {
+                audioContextLlamada.close().catch(function () {});
+                audioContextLlamada = null;
+            }
+        }
+
+        function iniciarCronometroLlamada() {
+            cronometroLlamadaSegundos = 0;
+            $('#llamadaEstadoTexto').text('0:00');
+            cronometroLlamadaInterval = setInterval(function () {
+                cronometroLlamadaSegundos++;
+                $('#llamadaEstadoTexto').text(formatoTiempoGrabacion(cronometroLlamadaSegundos));
+            }, 1000);
+        }
+
+        function detenerCronometroLlamada() {
+            if (cronometroLlamadaInterval) {
+                clearInterval(cronometroLlamadaInterval);
+                cronometroLlamadaInterval = null;
+            }
+        }
+
+        function crearPeerConnectionLlamada() {
+            const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
+            pc.onicecandidate = function (e) {
+                if (!e.candidate || !llamadaActual) return;
+                if (!llamadaActual.Id) {
+                    llamadaActual.candidatosPendientes = llamadaActual.candidatosPendientes || [];
+                    llamadaActual.candidatosPendientes.push(e.candidate);
+                    return;
+                }
+                enviarSenalLlamada({ Candidato: JSON.stringify(e.candidate) });
+            };
+            pc.ontrack = function (e) {
+                document.getElementById('audioRemoto').srcObject = e.streams[0];
+            };
+            return pc;
+        }
+
+        function mostrarModalLlamada() {
+            if (!llamadaActual) return;
+            $('#llamadaAvatar').css('background', colorAvatar(llamadaActual.Contacto)).text(iniciales(llamadaActual.Alias));
+            $('#llamadaAlias').text(llamadaActual.Alias);
+            const $botones = $('#llamadaBotones').empty();
+            if (llamadaActual.estado === 'sonando' && llamadaActual.Rol === 'origen') {
+                $('#llamadaEstadoTexto').text('Llamando...');
+                $('<button class="wa-btn-colgar" title="Cancelar"><i class="bi bi-telephone-x-fill"></i></button>')
+                    .on('click', colgarLlamada).appendTo($botones);
+            } else if (llamadaActual.estado === 'sonando' && llamadaActual.Rol === 'destino') {
+                $('#llamadaEstadoTexto').text('Llamada entrante');
+                $('<button class="wa-btn-colgar" title="Rechazar"><i class="bi bi-telephone-x-fill"></i></button>')
+                    .on('click', function () { responderLlamadaEntrante(false); }).appendTo($botones);
+                $('<button class="wa-btn-enviar" title="Aceptar"><i class="bi bi-telephone-fill"></i></button>')
+                    .on('click', function () { responderLlamadaEntrante(true); }).appendTo($botones);
+            } else if (llamadaActual.estado === 'aceptada') {
+                $('<button class="wa-btn-colgar" title="Colgar"><i class="bi bi-telephone-x-fill"></i></button>')
+                    .on('click', colgarLlamada).appendTo($botones);
+            }
+            $('#modalLlamada').css('display', 'flex');
+        }
+
+        function cerrarModalLlamada() {
+            $('#modalLlamada').hide();
+        }
+
+        function iniciarPollingSenalLlamada() {
+            detenerPollingSenalLlamada();
+            intervaloSenalLlamada = setInterval(function () {
+                if (llamadaActual && llamadaActual.Id) enviarSenalLlamada({});
+            }, 1500);
+        }
+
+        function detenerPollingSenalLlamada() {
+            if (intervaloSenalLlamada) {
+                clearInterval(intervaloSenalLlamada);
+                intervaloSenalLlamada = null;
+            }
+        }
+
+        function enviarSenalLlamada(extra) {
+            if (!llamadaActual || !llamadaActual.Id) return;
+            const datos = Object.assign({
+                Id_Llamada: llamadaActual.Id,
+                DesdeCandidato: llamadaActual.ultimoCandidatoVisto,
+                csrf_token: CSRF_TOKEN
+            }, extra || {});
+            $.post('Mensajeria_LlamadaSenal.php', datos, function (resp) {
+                if (!resp || !resp.success || !llamadaActual) return;
+                procesarRespuestaSenalLlamada(resp);
+            }, 'json');
+        }
+
+        function procesarRespuestaSenalLlamada(resp) {
+            if (!llamadaActual) return;
+
+            (resp.Candidatos || []).forEach(function (c) {
+                llamadaActual.ultimoCandidatoVisto = Math.max(llamadaActual.ultimoCandidatoVisto, c.Id);
+                if (!llamadaActual.pc) return;
+                try {
+                    llamadaActual.pc.addIceCandidate(new RTCIceCandidate(JSON.parse(c.Candidato)));
+                } catch (e) {}
+            });
+
+            if (llamadaActual.Rol === 'origen' && resp.Estado === 'aceptada' && resp.Respuesta_SDP && !llamadaActual.respuestaAplicada) {
+                llamadaActual.respuestaAplicada = true;
+                clearTimeout(llamadaActual.timeoutSinRespuesta);
+                llamadaActual.pc.setRemoteDescription({ type: 'answer', sdp: resp.Respuesta_SDP });
+                llamadaActual.estado = 'aceptada';
+                detenerTonoLlamada();
+                mostrarModalLlamada();
+                iniciarCronometroLlamada();
+                return;
+            }
+
+            if ((resp.Estado === 'rechazada' || resp.Estado === 'cancelada' || resp.Estado === 'finalizada') && llamadaActual.estado !== 'terminando') {
+                llamadaActual.estado = 'terminando';
+                detenerTonoLlamada();
+                detenerCronometroLlamada();
+                const texto = resp.Estado === 'rechazada' ? 'Llamada rechazada'
+                    : resp.Estado === 'cancelada' ? 'Llamada cancelada'
+                    : 'Llamada finalizada';
+                $('#llamadaEstadoTexto').text(texto);
+                $('#llamadaBotones').empty();
+                setTimeout(finalizarLlamadaLocal, 1500);
+            }
+        }
+
+        function iniciarLlamada() {
+            if (!contactoActivo || llamadaActual) return;
+            if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia || typeof RTCPeerConnection === 'undefined') {
+                alert('Este navegador no permite hacer llamadas');
+                return;
+            }
+            navigator.mediaDevices.getUserMedia({ audio: true }).then(function (stream) {
+                const pc = crearPeerConnectionLlamada();
+                stream.getTracks().forEach(function (t) { pc.addTrack(t, stream); });
+                llamadaActual = {
+                    Id: null,
+                    Rol: 'origen',
+                    Contacto: contactoActivo,
+                    Alias: aliasActivo,
+                    pc: pc,
+                    localStream: stream,
+                    ultimoCandidatoVisto: 0,
+                    estado: 'sonando'
+                };
+                pc.createOffer().then(function (oferta) {
+                    return pc.setLocalDescription(oferta).then(function () { return oferta; });
+                }).then(function (oferta) {
+                    $.post('Mensajeria_LlamadaIniciar.php', { Destino: contactoActivo, Oferta: oferta.sdp, csrf_token: CSRF_TOKEN }, function (resp) {
+                        if (!resp || !resp.success || !llamadaActual) {
+                            alert((resp && resp.error) || 'No se pudo iniciar la llamada');
+                            finalizarLlamadaLocal();
+                            return;
+                        }
+                        llamadaActual.Id = resp.Id_Llamada;
+                        (llamadaActual.candidatosPendientes || []).forEach(function (c) {
+                            enviarSenalLlamada({ Candidato: JSON.stringify(c) });
+                        });
+                        llamadaActual.candidatosPendientes = [];
+                        mostrarModalLlamada();
+                        iniciarTonoLlamada();
+                        llamadaActual.timeoutSinRespuesta = setTimeout(function () {
+                            if (llamadaActual && llamadaActual.estado === 'sonando') {
+                                colgarLlamada();
+                            }
+                        }, 30000);
+                        iniciarPollingSenalLlamada();
+                    }, 'json').fail(function () {
+                        alert('No se pudo iniciar la llamada');
+                        finalizarLlamadaLocal();
+                    });
+                });
+            }).catch(function () {
+                alert('No se pudo acceder al micrófono. Verificá los permisos del navegador.');
+            });
+        }
+
+        function responderLlamadaEntrante(aceptar) {
+            if (!llamadaActual) return;
+            if (!aceptar) {
+                $.post('Mensajeria_LlamadaSenal.php', { Id_Llamada: llamadaActual.Id, Accion: 'rechazar', csrf_token: CSRF_TOKEN }, function () {}, 'json');
+                detenerTonoLlamada();
+                finalizarLlamadaLocal();
+                return;
+            }
+            if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+                alert('Este navegador no permite hacer llamadas');
+                return;
+            }
+            navigator.mediaDevices.getUserMedia({ audio: true }).then(function (stream) {
+                if (!llamadaActual) { stream.getTracks().forEach(function (t) { t.stop(); }); return; }
+                const pc = crearPeerConnectionLlamada();
+                stream.getTracks().forEach(function (t) { pc.addTrack(t, stream); });
+                llamadaActual.pc = pc;
+                llamadaActual.localStream = stream;
+                pc.setRemoteDescription({ type: 'offer', sdp: llamadaActual.Oferta_SDP }).then(function () {
+                    return pc.createAnswer();
+                }).then(function (respuesta) {
+                    return pc.setLocalDescription(respuesta).then(function () { return respuesta; });
+                }).then(function (respuesta) {
+                    if (!llamadaActual) return;
+                    detenerTonoLlamada();
+                    llamadaActual.estado = 'aceptada';
+                    mostrarModalLlamada();
+                    iniciarCronometroLlamada();
+                    enviarSenalLlamada({ Accion: 'aceptar', Respuesta: respuesta.sdp });
+                    iniciarPollingSenalLlamada();
+                });
+            }).catch(function () {
+                alert('No se pudo acceder al micrófono. Verificá los permisos del navegador.');
+                responderLlamadaEntrante(false);
+            });
+        }
+
+        function colgarLlamada() {
+            if (!llamadaActual) return;
+            if (llamadaActual.Id) {
+                $.post('Mensajeria_LlamadaSenal.php', { Id_Llamada: llamadaActual.Id, Accion: 'colgar', csrf_token: CSRF_TOKEN }, function () {}, 'json');
+            }
+            finalizarLlamadaLocal();
+        }
+
+        function finalizarLlamadaLocal() {
+            detenerPollingSenalLlamada();
+            detenerCronometroLlamada();
+            detenerTonoLlamada();
+            if (llamadaActual) {
+                clearTimeout(llamadaActual.timeoutSinRespuesta);
+                if (llamadaActual.localStream) {
+                    llamadaActual.localStream.getTracks().forEach(function (t) { t.stop(); });
+                }
+                if (llamadaActual.pc) {
+                    llamadaActual.pc.close();
+                }
+            }
+            llamadaActual = null;
+            cerrarModalLlamada();
+        }
+
+        function verificarLlamadaEntrante() {
+            if (llamadaActual) return;
+            $.post('Mensajeria_LlamadaEstado.php', { csrf_token: CSRF_TOKEN }, function (resp) {
+                if (!resp || !resp.success || !resp.llamada || llamadaActual) return;
+                const l = resp.llamada;
+                if (l.Rol !== 'destino' || l.Estado !== 'sonando') return;
+                llamadaActual = {
+                    Id: l.Id,
+                    Rol: 'destino',
+                    Contacto: l.Contacto,
+                    Alias: l.Alias,
+                    Oferta_SDP: l.Oferta_SDP,
+                    pc: null,
+                    localStream: null,
+                    ultimoCandidatoVisto: 0,
+                    estado: 'sonando'
+                };
+                mostrarModalLlamada();
+                iniciarTonoLlamada();
+                iniciarPollingSenalLlamada();
+            }, 'json');
+        }
+
         $(document).ready(function () {
             cargarBandeja();
             setInterval(cargarBandeja, 6000);
             setInterval(function () { if (contactoActivo) cargarConversacion(false); }, 4000);
+            setInterval(verificarLlamadaEntrante, 4000);
+            $('#btnLlamar').on('click', iniciarLlamada);
 
             $('#buscarContacto').on('input', renderSidebar);
             $('#btnEnviar').on('click', enviarMensaje);
